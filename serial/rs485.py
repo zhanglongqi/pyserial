@@ -26,12 +26,18 @@ class RS485Settings(object):
             rts_level_for_rx=False,
             loopback=False,
             delay_before_tx=None,
-            delay_before_rx=None):
+            delay_before_rx=None,
+            rts_gpio=None,
+            rts_gpio_tx=1,
+            rts_gpio_rx=0):
         self.rts_level_for_tx = rts_level_for_tx
         self.rts_level_for_rx = rts_level_for_rx
         self.loopback = loopback
         self.delay_before_tx = delay_before_tx
         self.delay_before_rx = delay_before_rx
+        self.rts_gpio = rts_gpio
+        self.rts_gpio_tx = rts_gpio_tx
+        self.rts_gpio_rx = rts_gpio_rx
 
 
 class RS485(serial.Serial):
@@ -66,16 +72,20 @@ class RS485(serial.Serial):
         """Write to port, controlling RTS before and after transmitting."""
         if self._alternate_rs485_settings is not None:
             # apply level for TX and optional delay
-            self.setRTS(self._alternate_rs485_settings.rts_level_for_tx)
+            # self.setRTS(self._alternate_rs485_settings.rts_level_for_tx)
             if self._alternate_rs485_settings.delay_before_tx is not None:
                 time.sleep(self._alternate_rs485_settings.delay_before_tx)
+            if self._alternate_rs485_settings.rts_gpio is not None:
+                self._alternate_rs485_settings.rts_gpio.set_value(self._alternate_rs485_settings.rts_gpio_tx)
             # write and wait for data to be written
             super(RS485, self).write(b)
             super(RS485, self).flush()
             # optional delay and apply level for RX
             if self._alternate_rs485_settings.delay_before_rx is not None:
                 time.sleep(self._alternate_rs485_settings.delay_before_rx)
-            self.setRTS(self._alternate_rs485_settings.rts_level_for_rx)
+            if self._alternate_rs485_settings.rts_gpio is not None:
+                self._alternate_rs485_settings.rts_gpio.set_value(self._alternate_rs485_settings.rts_gpio_rx)
+            # self.setRTS(self._alternate_rs485_settings.rts_level_for_rx)
         else:
             super(RS485, self).write(b)
 
@@ -92,3 +102,19 @@ class RS485(serial.Serial):
     @rs485_mode.setter
     def rs485_mode(self, rs485_settings):
         self._alternate_rs485_settings = rs485_settings
+
+
+if __name__ == '__main__':
+    import gpiod
+
+    line = gpiod.Chip('gpiochip0').get_line(34)
+    line.request(consumer='rs485_rts_gpio', type=gpiod.LINE_REQ_DIR_OUT)
+    rs485_settings = RS485Settings(rts_gpio=line, rts_gpio_tx=1, rts_gpio_rx=0)
+
+    s = RS485(port='/dev/serial1', baudrate=115200)
+    s.rs485_mode = rs485_settings
+    import time
+    while True:
+        s.write(b'HI')
+        time.sleep(0.01)
+    s.read(2)
